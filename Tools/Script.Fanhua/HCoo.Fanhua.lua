@@ -1,5 +1,5 @@
 script_name = "字幕一键繁化 (调用繁化姬)"
-script_description = "对字幕进行简单处理，然后调用繁化姬一键繁化，输出简繁两份字幕"
+script_description = "对字幕进行简单处理，然后调用繁化姬一键繁化（维基繁体化 + 台湾本地化），输出简繁两份字幕"
 script_author = "H.Coo"
 script_version = "1.0.0"
 
