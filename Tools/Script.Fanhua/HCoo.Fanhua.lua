@@ -1153,6 +1153,10 @@ local function check_line(warnings, key)
   if type(entry) ~= "table" then return label .. "：⚠ 未执行" end
   if entry.skipped then return label .. "：— 已跳过" end
   if entry.ok then return label .. "：✓ 正常" end
+  if key == "iriya" and type(entry.missing_fonts) == "table"
+    and #entry.missing_fonts > 0 then
+    return label .. "：⚠ 缺少 " .. tostring(#entry.missing_fonts) .. " 个字体"
+  end
   local message = entry.message
   if not message or message == "" then message = "发现问题" end
   return label .. "：⚠ " .. tostring(message)
@@ -1160,15 +1164,28 @@ end
 
 local function show_result(result)
   local names = result.output_names or {}
+  local warnings = result.warnings or {}
   local lines = { "处理完成", "" }
   lines[#lines + 1] = "CHS：" .. tostring(names.chs or "")
   lines[#lines + 1] = "CHT：" .. tostring(names.cht or "")
   lines[#lines + 1] = "Diff：" .. ((names.diff and names.diff ~= "") and names.diff or "（未生成）")
   lines[#lines + 1] = ""
   lines[#lines + 1] = "检查："
-  lines[#lines + 1] = check_line(result.warnings, "iriya")
-  lines[#lines + 1] = check_line(result.warnings, "matrix")
-  lines[#lines + 1] = check_line(result.warnings, "asterisk")
+  lines[#lines + 1] = check_line(warnings, "iriya")
+  local iriya = warnings.iriya
+  if type(iriya) == "table" and type(iriya.missing_fonts) == "table"
+    and #iriya.missing_fonts > 0 then
+    lines[#lines + 1] = "缺失字体："
+    for index = 1, #iriya.missing_fonts, 2 do
+      local row = tostring(iriya.missing_fonts[index])
+      if iriya.missing_fonts[index + 1] ~= nil then
+        row = row .. "；" .. tostring(iriya.missing_fonts[index + 1])
+      end
+      lines[#lines + 1] = row
+    end
+  end
+  lines[#lines + 1] = check_line(warnings, "matrix")
+  lines[#lines + 1] = check_line(warnings, "asterisk")
 
   local stats = result.stats or {}
   if stats.diff_blocks then
@@ -1180,11 +1197,12 @@ local function show_result(result)
   end
 
   local warning_lines = {}
-  local warnings = result.warnings or {}
   for _, key in ipairs({ "config", "zhconvert", "iriya", "matrix", "asterisk" }) do
     local entry = warnings[key]
     if type(entry) == "table" then
-      if entry.message and entry.message ~= "" then
+      local font_list_shown = key == "iriya" and type(entry.missing_fonts) == "table"
+        and #entry.missing_fonts > 0
+      if entry.message and entry.message ~= "" and not font_list_shown then
         warning_lines[#warning_lines + 1] = "· " .. tostring(entry.message)
       end
       if type(entry.messages) == "table" then
