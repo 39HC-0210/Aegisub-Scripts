@@ -5,7 +5,7 @@ script_version = "1.0.0"
 
 local PROTOCOL_VERSION = 1
 
-local BTN_SELECT = "选择"
+local BTN_SELECT_SAVE = "选择/保存"
 local BTN_NEW = "新增"
 local BTN_DELETE = "删除"
 local BTN_RESET = "重置"
@@ -1363,11 +1363,25 @@ local function delete_current_profile(state, values)
   return true
 end
 
+local function select_or_save_profile(state, values)
+  local target = values.profile or state.profile_name
+  if target ~= state.profile_name then
+    local ok, message = load_state_profile(state, target)
+    return ok, message, "select"
+  end
+
+  state.values = values
+  local ok, message = save_profile(target, profile_from_values(state, values))
+  if not ok then return false, message, "save" end
+  ok, message = load_state_profile(state, target)
+  return ok, message, "save"
+end
+
 -- 8. 主循环
 
 local function dialog_loop(state)
   local values = state.values
-  local buttons = { BTN_SELECT, BTN_NEW, BTN_DELETE, BTN_RESET, BTN_START, BTN_CANCEL }
+  local buttons = { BTN_SELECT_SAVE, BTN_NEW, BTN_DELETE, BTN_RESET, BTN_START, BTN_CANCEL }
   while true do
     refresh_hint(state)
     local dialog = build_dialog(state)
@@ -1380,11 +1394,11 @@ local function dialog_loop(state)
     elseif button == BTN_START then
       state.values = values
       process_current_script(state)
-    elseif button == BTN_SELECT then
-      local target = values.profile or state.profile_name
-      if target ~= state.profile_name then
-        local ok, message = load_state_profile(state, target)
-        if not ok then show_message("载入配置失败", tostring(message)) end
+    elseif button == BTN_SELECT_SAVE then
+      local ok, message, action = select_or_save_profile(state, values)
+      if not ok then
+        local title = (action == "save") and "保存配置失败" or "载入配置失败"
+        show_message(title, tostring(message))
       end
     elseif button == BTN_NEW then
       state.values = values
@@ -1491,6 +1505,7 @@ Fanhua = {
   show_message = show_message,
   confirm = confirm,
   prompt_text = prompt_text,
+  select_or_save_profile = select_or_save_profile,
   dialog_loop = dialog_loop,
   main = main,
 }
