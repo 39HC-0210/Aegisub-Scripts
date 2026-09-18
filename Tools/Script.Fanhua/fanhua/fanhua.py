@@ -91,7 +91,7 @@ class FanhuaError(Exception):
 
 
 def error_payload(stage: str, exc: BaseException, detail: str = "") -> dict:
-    """把任意异常转成 Lua 可显示的错误结果（始终包含 traceback）。"""
+    """把任意异常转成 Lua 可显示的错误结果。"""
     if isinstance(exc, FanhuaError):
         payload = exc.to_payload()
         if detail and not payload["detail"]:
@@ -142,7 +142,7 @@ def _as_text(value) -> str:
 
 
 def normalize_modules(raw) -> dict:
-    """规范化 zhconvert modules，保留未知 key（向前兼容繁化姬新增模组）。"""
+    """兼容繁化姬新增模组"""
     modules: dict = {}
     if isinstance(raw, str):
         try:
@@ -175,11 +175,7 @@ def set_module(modules: dict, key: str, enabled: bool) -> dict:
 
 
 def normalize_profile(raw, warnings: list | None = None) -> dict:
-    """把任意来源（旧版 _fanhua.yml / 新 Profile / Lua 传来的表）规范化。
-
-    旧配置只有 misc_config.chs_suffix、cht_suffix 与 zhconvert_config，
-    缺失的新字段在这里补默认值，因此旧的 _fanhua.yml 依然可直接使用。
-    """
+    """规范化数据来源"""
     warn = warnings if warnings is not None else []
     raw = raw if isinstance(raw, dict) else {}
 
@@ -228,7 +224,7 @@ def normalize_profile(raw, warnings: list | None = None) -> dict:
 
 
 def parse_ignore_styles(text: str) -> list:
-    """每行一个 Style Name，精确匹配（区分大小写），忽略空行。"""
+    """确认忽略的样式名，精确匹配（区分大小写），忽略空行。"""
     result = []
     for line in _as_text(text).splitlines():
         name = line.strip()
@@ -238,7 +234,7 @@ def parse_ignore_styles(text: str) -> list:
 
 
 def parse_custom_replacements(text: str) -> list:
-    """每行「原文=替换后」，只按第一个 = 分割，忽略空行。"""
+    """确认需要替换的内容，忽略空行。"""
     rules = []
     for line in _as_text(text).splitlines():
         if not line.strip():
@@ -271,7 +267,7 @@ def load_yaml_module():
 
 
 def read_profile_file(path: Path) -> tuple:
-    """读取并规范化一个 Profile 文件。返回 (profile, warnings)。"""
+    """读取并规范化一个 Profile 文件"""
     yaml = load_yaml_module()
     if not path.is_file():
         raise FanhuaError("config", f"配置文件不存在：{path.name}", str(path))
@@ -296,8 +292,8 @@ def dump_profile_text(profile: dict) -> str:
     dumper = yaml.SafeDumper
     dumper.add_representer(str, _str_representer)
     header = (
-        "# 由「繁化姬 - Aegisub 内置工具」保存\n"
-        "# 可直接手工编辑；GUI 中的「重置」会重新载入本文件。\n"
+        "# 数据由「当前脚本」保存，可直接手工编辑；\n"
+        "# GUI 中的「重置」会重新载入本文件。\n"
     )
     body = yaml.dump(
         profile,
@@ -319,11 +315,11 @@ def write_profile_file(path: Path, profile: dict) -> None:
         raise FanhuaError("config", f"无法写入配置文件：{path.name}", str(exc)) from exc
 
 
-# 原子写入 / 日志
+# 日志
 
 
 def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
-    """先写同目录临时文件，成功后原子替换，失败时清理临时文件。"""
+    """先写同目录临时文件，成功后替换，失败时清理临时文件。"""
     tmp = path.with_name(f".{path.name}.fanhua-tmp")
     try:
         with open(tmp, "w", encoding=encoding, newline="") as handle:
@@ -380,7 +376,7 @@ def prune_logs(log_dir: Path, keep: int = MAX_LOG_FILES) -> None:
 
 
 def write_log(log_dir: Path | None, entry: dict) -> str:
-    """写一份日志。返回日志路径；写日志失败绝不中断主流程。"""
+    """写一份日志。返回日志路径。"""
     try:
         directory = Path(log_dir) if log_dir else default_log_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -398,18 +394,13 @@ def write_log(log_dir: Path | None, entry: dict) -> str:
     except Exception:
         return ""
 
-
-# ASS 读取与清理
-
-
 def read_ass(filename, clean: bool = True) -> str:
     """读取 ASS。
 
-    clean=True 时执行与 _fanhua.py 完全一致的清理：
-      * 删除 [Aegisub Project Garbage] / [Aegisub Extradata] 区段
-      * 删除 motion data  {(=1)(=2)...}
-      * 删除 {外:<32 位十六进制>}
-    尾部换行归一化在任何模式下都执行（属于 I/O 归一化而非「清理」）。
+    clean=True 时执行清理：
+      - 删除 [Aegisub Project Garbage] / [Aegisub Extradata] 区段
+      - 删除 motion data  {(=1)(=2)...}
+      - 删除外字
     """
     contents = ""
     if clean:
@@ -437,7 +428,7 @@ def read_ass(filename, clean: bool = True) -> str:
 
 
 def auto_metadata(content: str, filename: Path) -> str:
-    """与 _fanhua.py 完全一致。"""
+    """删除 metadata"""
     output = re.sub(
         r"Original Translation: \n|Original Editing: \n|Original Timing: \n"
         r"|Synch Point: \n|Script Updated By: \n|Update Details: \n",
@@ -453,7 +444,7 @@ def auto_metadata(content: str, filename: Path) -> str:
 
 
 def auto_comment(content: str) -> str:
-    """与 _fanhua.py 完全一致：依据 Actor 字段中的 chs / cht 切换记录类型。"""
+    """对行类型进行记录，忽略部分行"""
     output = re.sub(
         r"Dialogue: (\d+,\d+:\d{2}:\d{2}\.\d{2},\d+:\d{2}:\d{2}\.\d{2},"
         r"(?P<style>[^,]*),chs,\d+,\d+,\d+,[^,]*,.+\n)", r"Comment: \1", content)
@@ -473,16 +464,12 @@ def auto_comment(content: str) -> str:
 
 
 def iter_lines(content: str) -> list:
-    """与 SubtitleDiffWeb.html 的 iterateLines 等价。
-
-    JS 版把 \\r\\n、\\n、\\v、\\f、\\x1c-\\x1e、\\x85、\\u2028、\\u2029 都当作换行，
-    Python 的 str.splitlines() 处理集合完全一致，且都不会在结尾追加空行。
-    """
+    """等价解析Events行"""
     return content.splitlines()
 
 
 def parse_events_format(content: str) -> list | None:
-    """返回 [Events] 中最后一次出现的 Format 字段名（小写）。"""
+    """返回 Events 中最后一次出现的 Format 字段名"""
     fields = None
     in_events = False
     for line in iter_lines(content):
@@ -530,7 +517,7 @@ def _split_from_end(value: str, count: int):
 
 
 def split_event_fields(payload: str, fields: list):
-    """按 Events Format 动态切分一条记录载荷，正确处理 Text 含逗号的情况。"""
+    """处理 Text 含逗号的情况"""
     if not fields or "text" not in fields:
         return None
     text_index = fields.index("text")
@@ -558,7 +545,7 @@ def split_event_fields(payload: str, fields: list):
 
 
 def text_field_span(payload: str, fields: list):
-    """返回 payload 中 Text 字段的 (start, end) 字符偏移，失败返回 None。"""
+    """返回 payload 中 Text 字段的字符偏移，失败返回 None"""
     if not fields or "text" not in fields:
         return None
     text_index = fields.index("text")
@@ -756,10 +743,6 @@ def apply_custom_replacements(content: str, rules: list, ignore_styles: list) ->
         return replace_outside_tags(text, rules)
 
     return rewrite_dialogue_text(content, transform)
-
-
-# zhconvert
-
 
 class ZhconvertClient:
     """api.zhconvert.org 客户端。保留 _fanhua.py 的全部保护逻辑。"""
