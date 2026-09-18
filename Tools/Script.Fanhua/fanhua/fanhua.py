@@ -1,28 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-繁化姬 - Aegisub Automation  Python 后端
-=========================================
-
-单一文件后端。GUI 完全由 Fanhua.lua 负责，本文件不创建任何窗口。
-
-调用方式（全部为非交互模式，结果一律写入 result JSON）：
-
-    pythonw.exe fanhua.py --process        request.json --result result.json
-    pythonw.exe fanhua.py --profile-read   profile.yml  --result result.json
-    pythonw.exe fanhua.py --profile-write  request.json --output profile.yml --result result.json
-
-设计约束（对应 任务要求.txt）：
-
-* Python 不实现 GUI，不使用 tkinter / PyQt / wxPython / WebUI。
-* 全部业务集中在本文件，内部按函数拆分。
-* 与 Lua 只通过 JSON 文件通讯，stdout 不参与 IPC。
-* 完全非交互：没有 input()、没有 pause、没有 Y/n 提问。
-* 任何异常都必须被捕获并写成 Lua 可显示的错误结果。
-* 输出先写临时文件，全部成功后再原子替换，绝不留下半截文件。
-* 不覆盖原 ASS。
-* 中文路径 / 空格路径 / Unicode 文件名全部按 UTF-8 与 pathlib 处理。
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -44,11 +19,9 @@ PROFILE_VERSION = 1
 ZHCONVERT_API = "https://api.zhconvert.org"
 ZHCONVERT_REQUEST_INTERVAL = 5.0
 ZHCONVERT_TIMEOUT = 120.0
-# api.zhconvert.org rejects request bodies over 1 MiB with HTTP 413.
-# Keep 48 KiB of headroom for the JSON request envelope.
+# API 请求体上限为 1 MiB，预留 48 KiB 给 JSON 外壳。
 ZHCONVERT_MAX_BODY = 1_000_000
 
-# 与 _fanhua.py 完全一致的向量/绘图长串识别规则。
 VECTOR_RUN_RE = re.compile(r"[0-9bmlcspnBMLCSPN \t.\-]{500,}")
 
 SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
@@ -59,7 +32,6 @@ COMMENT_STAMP_RE = re.compile(
 MAX_LOG_FILES = 20
 IRIYA_OUTPUT_LIMIT = 4000
 
-# GUI「繁化姬模块」复选框 -> _fanhua.yml 中真实存在的 zhconvert module key。
 ZHCONVERT_MODULE_KEYS = (
     ("ChineseVariant", "地区词转换"),
     ("Computer", "计算机用语"),
@@ -90,14 +62,10 @@ ZHCONVERT_DEFAULTS = {
     "modules": {"*": ZHCONVERT_MODULE_OFF},
 }
 
-# 这两个旧服务端字段已由 GUI 的本地 ignore_styles / custom_replacements 取代。
-# 读取旧 Profile 时直接丢弃，避免保存后再次写回或随 API 请求发送。
 OBSOLETE_ZHCONVERT_KEYS = frozenset({"ignoreTextStyles", "userPostReplace"})
 
 
-# ============================================================================
 # 错误类型
-# ============================================================================
 
 
 class FanhuaError(Exception):
@@ -145,9 +113,7 @@ def error_payload(stage: str, exc: BaseException, detail: str = "") -> dict:
     }
 
 
-# ============================================================================
 # Profile / 配置
-# ============================================================================
 
 
 def _as_bool(value, default: bool) -> bool:
@@ -244,8 +210,6 @@ def normalize_profile(raw, warnings: list | None = None) -> dict:
     zh = {}
     for key, default in ZHCONVERT_DEFAULTS.items():
         zh[key] = zh_raw.get(key, default)
-    # 保留我们不认识的 zhconvert 选项（例如繁化姬将来新增的参数），
-    # 否则保存一次 Profile 就会把它们悄悄丢掉。
     for key, value in zh_raw.items():
         if key not in ZHCONVERT_DEFAULTS and key not in OBSOLETE_ZHCONVERT_KEYS:
             zh[key] = value
@@ -355,9 +319,7 @@ def write_profile_file(path: Path, profile: dict) -> None:
         raise FanhuaError("config", f"无法写入配置文件：{path.name}", str(exc)) from exc
 
 
-# ============================================================================
 # 原子写入 / 日志
-# ============================================================================
 
 
 def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
@@ -437,9 +399,7 @@ def write_log(log_dir: Path | None, entry: dict) -> str:
         return ""
 
 
-# ============================================================================
-# ASS 读取与清理（与 _fanhua.py 行为逐字兼容）
-# ============================================================================
+# ASS 读取与清理
 
 
 def read_ass(filename, clean: bool = True) -> str:
@@ -509,9 +469,7 @@ def auto_comment(content: str) -> str:
     return output
 
 
-# ============================================================================
 # Events 解析工具
-# ============================================================================
 
 
 def iter_lines(content: str) -> list:
@@ -695,9 +653,7 @@ def rewrite_dialogue_text(content: str, transform) -> tuple:
     return "".join(out), changed
 
 
-# ============================================================================
-# Ignore Style（mask → convert → restore）
-# ============================================================================
+# 忽略样式
 
 
 def mask_ignored_styles(content: str, ignore_styles: list) -> tuple:
@@ -762,9 +718,7 @@ def restore_masked(content: str, masked: dict, stage: str) -> str:
     return content
 
 
-# ============================================================================
-# Custom Replacement
-# ============================================================================
+# 自定义替换
 
 
 def apply_rules(text: str, rules: list) -> str:
@@ -804,17 +758,14 @@ def apply_custom_replacements(content: str, rules: list, ignore_styles: list) ->
     return rewrite_dialogue_text(content, transform)
 
 
-# ============================================================================
 # zhconvert
-# ============================================================================
 
 
 class ZhconvertClient:
     """api.zhconvert.org 客户端。保留 _fanhua.py 的全部保护逻辑。"""
 
     def __init__(self, interval=None, max_body=None, timeout=None):
-        # 用 None 作为哨兵而不是直接把常量写成默认值：
-        # 默认参数在函数定义时求值，那样 monkeypatch 模块常量就不会生效。
+        # 运行时读取默认值，便于测试替换模块常量。
         self.interval = ZHCONVERT_REQUEST_INTERVAL if interval is None else interval
         self.max_body = ZHCONVERT_MAX_BODY if max_body is None else max_body
         self.timeout = ZHCONVERT_TIMEOUT if timeout is None else timeout
@@ -971,9 +922,7 @@ def build_zhconvert_config(zhconvert_config: dict) -> dict:
     return config
 
 
-# ============================================================================
 # 检查项
-# ============================================================================
 
 
 def check_matrix(content: str) -> dict:
@@ -1048,6 +997,23 @@ def parse_iriya_report(text: str) -> dict:
     return {"missing_fonts": missing_fonts, "missing_glyphs": missing_glyphs}
 
 
+def decode_process_output(data: bytes) -> str:
+    """Decode Windows tool output as UTF-8 first, then GB18030."""
+    if not data:
+        return ""
+    for encoding in ("utf-8-sig", "gb18030"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            pass
+    return data.decode("utf-8", errors="replace")
+
+
+def format_missing_fonts(fonts: list) -> str:
+    """Format one font name per line for the final report."""
+    return "字体未安装：\n" + "\n".join(fonts)
+
+
 def run_iriya(paths: list) -> dict:
     """非交互地运行 Iriya。组件缺失或失败都只作为 Warning 返回。"""
     executable = find_iriya()
@@ -1082,8 +1048,8 @@ def run_iriya(paths: list) -> dict:
                             "status": "error", "message": f"无法启动 Iriya：{exc}"})
             continue
 
-        stdout = completed.stdout.decode("utf-8", errors="replace")
-        stderr = completed.stderr.decode("utf-8", errors="replace")
+        stdout = decode_process_output(completed.stdout)
+        stderr = decode_process_output(completed.stderr)
         report = parse_iriya_report(stderr + "\n" + stdout)
         for font in report["missing_fonts"]:
             if font not in all_fonts:
@@ -1111,7 +1077,7 @@ def run_iriya(paths: list) -> dict:
 
     messages = []
     if all_fonts:
-        messages.append("字体未安装：" + "、".join(all_fonts[:20]))
+        messages.append(format_missing_fonts(all_fonts[:50]))
     if all_glyphs:
         detail = "、".join(
             f"{item['where']} [{item['char']}]→{item['font']}" for item in all_glyphs[:10])
@@ -1133,15 +1099,7 @@ def run_iriya(paths: list) -> dict:
     }
 
 
-# ============================================================================
-# Diff 引擎
-# ----------------------------------------------------------------------------
-# 等价移植自 SubtitleDiffWeb.html 的「仅比较台词」模式：
-#   cleanAssDialogue / parseAssDialogues / SequenceMatcher / charDiff /
-#   fuzzyAlignRecords / planAlignedRows / alignRecords / buildReportHtml /
-#   REPORT_CSS / REPORT_TOOLS / REPORT_TOOLS_SCRIPT
-# 明确不带入任何 SheetJS / Excel 代码。
-# ============================================================================
+# Diff 引擎（移植自 SubtitleDiffWeb.html，仅比较台词）
 
 DIFF_VERSION = "1.0.0"
 MAX_RECORDS = 250000
@@ -1916,8 +1874,6 @@ DIFF_REPORT_TOOLS = (
     "</div>"
 )
 
-# 与 SubtitleDiffWeb.html 的 REPORT_TOOLS_SCRIPT 行为一致：
-# 只看差异 / 上一处差异 / 下一处差异 / 搜索 / 上一个 / 下一个。
 DIFF_REPORT_TOOLS_SCRIPT = """
 <script>
 (function () {
@@ -2146,9 +2102,7 @@ def build_dialogue_diff_report(left_text: str, right_text: str,
     return html, stats
 
 
-# ============================================================================
 # 请求解析
-# ============================================================================
 
 
 def build_settings(request: dict) -> tuple:
@@ -2197,9 +2151,7 @@ def _safe_unlink(path: Path) -> None:
         pass
 
 
-# ============================================================================
 # 主流程
-# ============================================================================
 
 
 def process(request: dict) -> dict:
@@ -2337,7 +2289,6 @@ def process(request: dict) -> dict:
         else:
             warnings["matrix"] = {"ok": True, "value": "", "message": "", "skipped": True}
         if misc["check_asterisk"]:
-            # 行号相对原始 ASS，用户在 Aegisub 里能直接跳到该行。
             warnings["asterisk"] = check_asterisk(raw_source)
         else:
             warnings["asterisk"] = {"ok": True, "count": 0, "lines": [],
@@ -2404,9 +2355,7 @@ def process(request: dict) -> dict:
         return payload
 
 
-# ============================================================================
 # 入口 / JSON 协议
-# ============================================================================
 
 
 def load_json_file(path: Path) -> dict:
