@@ -1,0 +1,33 @@
+# 首次运行时复制为用户目录中的“默认”Profile。
+profile_version: 1
+
+misc_config:
+  chs_suffix: _CHS
+  cht_suffix: _CHT
+  # 每行一个需完整跳过的 ASS 样式名。
+  ignore_styles: |
+  # 每行一条“原文=替换后”。
+  custom_replacements: |
+
+  # 字幕处理
+  clean_aegisub: true
+  auto_metadata: true
+  auto_comment: true
+
+  # 检查与报告
+  check_iriya: true
+  check_matrix: true
+  check_asterisk: true
+  generate_diff: true
+  open_diff: true
+
+zhconvert_config:
+  # -1 使用繁化姬默认值，0 关闭；'*' 是未列出模块的兜底值。
+  modules:
+    '*': 0
+    ChineseVariant: -1
+    Computer: -1
+    ProperNoun: -1
+    Repeat: -1
+    RepeatAutoFix: -1
+    Unit: -1
