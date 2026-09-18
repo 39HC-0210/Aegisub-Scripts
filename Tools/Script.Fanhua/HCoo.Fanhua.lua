@@ -1176,12 +1176,8 @@ local function show_result(result)
   if type(iriya) == "table" and type(iriya.missing_fonts) == "table"
     and #iriya.missing_fonts > 0 then
     lines[#lines + 1] = "缺失字体："
-    for index = 1, #iriya.missing_fonts, 2 do
-      local row = tostring(iriya.missing_fonts[index])
-      if iriya.missing_fonts[index + 1] ~= nil then
-        row = row .. "；" .. tostring(iriya.missing_fonts[index + 1])
-      end
-      lines[#lines + 1] = row
+    for _, font in ipairs(iriya.missing_fonts) do
+      lines[#lines + 1] = tostring(font)
     end
   end
   lines[#lines + 1] = check_line(warnings, "matrix")
