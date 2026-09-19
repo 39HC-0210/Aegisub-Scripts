@@ -303,6 +303,7 @@ local function get_plugin_paths()
     config_dir = user_dir .. "/fanhua/configs",
     log_dir = user_dir .. "/fanhua/logs",
     temp_dir = user_dir .. "/fanhua/tmp",
+    last_profile = user_dir .. "/fanhua/last-profile.json",
   }
   paths.python = paths.fanhua_dir .. "/python/pythonw.exe"
   paths.python_console = paths.fanhua_dir .. "/python/python.exe"
@@ -762,6 +763,32 @@ local function list_profiles()
   return { DEFAULT_PROFILE }
 end
 
+local function profile_in_list(name, profiles)
+  if type(name) ~= "string" or name == "" then return false end
+  for _, profile_name in ipairs(profiles or {}) do
+    if profile_name == name then return true end
+  end
+  return false
+end
+
+local function read_last_profile(profiles)
+  local contents = read_text_file(get_plugin_paths().last_profile)
+  if contents and contents ~= "" then
+    local ok, data = pcall(json.decode, contents)
+    local name = ok and type(data) == "table" and data.profile or nil
+    if profile_in_list(name, profiles) then return name end
+  end
+  if profile_in_list(DEFAULT_PROFILE, profiles) then return DEFAULT_PROFILE end
+  return (profiles and profiles[1]) or DEFAULT_PROFILE
+end
+
+local function remember_profile(name)
+  if type(name) ~= "string" or name == "" then return false end
+  local paths = get_plugin_paths()
+  ensure_directory(paths.config_dir)
+  return write_text_file(paths.last_profile, json.encode({ profile = name }))
+end
+
 local function ensure_profiles()
   local paths = get_plugin_paths()
   ensure_directory(paths.config_dir)
@@ -953,8 +980,9 @@ local function build_dialog(state)
   put { class = "edit", name = "cht_suffix", value = state.values.cht_suffix or "", x = 4 }
   newline()
 
+  -- 左侧保持原始尺寸；用文本宽度锚点明确撑宽右侧规则区。
   put { class = "label", label = "忽略样式名", x = 0, width = 3 }
-  put { class = "label", label = "自定义替换规则", x = 3, width = 2 }
+  put { class = "label", label = width_anchor("自定义替换规则", 72), x = 3, width = 2 }
   newline()
   put { class = "label", label = "每行一个 Style Name（精确匹配）", x = 0, width = 3 }
   put { class = "label", label = "每行一条：原文=替换后", x = 3, width = 2 }
@@ -963,21 +991,21 @@ local function build_dialog(state)
   put { class = "textbox", name = "ignore_styles",
         text = state.values.ignore_styles or "", x = 0, width = 3, height = 6 }
   put { class = "textbox", name = "custom_replacements",
-        text = state.values.custom_replacements or "", x = 3, width = 2, height = 6 }
+        text = state.values.custom_replacements or "", x = 3, width = 2, height = 10 }
+  -- 右框比左框多出的四行用于放置模块预设，避免左侧出现大片空白。
   newline(6)
 
-  put { class = "label", label = "预设", x = 0, width = 5 }
-  newline()
-  put { class = "label", label = "繁化姬模块", x = 0, width = 5 }
+  put { class = "label", label = "预设 · 繁化姬模块", x = 0, width = 3 }
   newline()
   for index, field in ipairs(MODULE_FIELDS) do
+    local column = (index - 1) % 2
     put { class = "checkbox", name = field.name, label = field.label,
           value = module_enabled(state.modules, field.key),
-          x = ((index - 1) % 3 == 0) and 0 or ((index - 1) % 3 + 1),
-          width = ((index - 1) % 3 == 0) and 2 or 1 }
-    if index % 3 == 0 then newline() end
+          x = (column == 0) and 0 or 2,
+          width = (column == 0) and 2 or 1 }
+    if index % 2 == 0 then newline() end
   end
-  if #MODULE_FIELDS % 3 ~= 0 then newline() end
+  if #MODULE_FIELDS % 2 ~= 0 then newline() end
 
   local groups = {
     { title = "字幕处理", first = 1, last = 3 },
@@ -1088,6 +1116,8 @@ local function load_state_profile(state, name)
   for key, value in pairs(state.values) do state.loaded_values[key] = value end
   state.modules = profile.modules
   state.zhconvert_extra = profile.zhconvert_config
+  -- 每次成功切换配置便立即记录；即使 Aegisub 非正常退出也不会丢失选择。
+  remember_profile(name)
   return true
 end
 
@@ -1400,10 +1430,14 @@ local function dialog_loop(state)
     refresh_hint(state)
     local dialog = build_dialog(state)
     local button, result = dialog_display(dialog, buttons)
-    if not button then return end
+    if not button then
+      remember_profile(state.profile_name)
+      return
+    end
     values = collect_values(state, dialog, result)
 
     if button == BTN_CANCEL then
+      remember_profile(state.profile_name)
       return
     elseif button == BTN_START then
       state.values = values
@@ -1454,12 +1488,13 @@ local function main(subtitles, selected)
   local script_path, display_name = get_current_script()
   local profiles = list_profiles()
   if #profiles == 0 then profiles = { DEFAULT_PROFILE } end
+  local initial_profile = read_last_profile(profiles)
 
   local state = {
     script_path = script_path,
     display_name = display_name,
     profiles = profiles,
-    profile_name = DEFAULT_PROFILE,
+    profile_name = initial_profile,
     values = {},
     loaded_values = {},
     modules = {},
@@ -1467,10 +1502,13 @@ local function main(subtitles, selected)
     profile_hint = "",
   }
 
-  local loaded, load_message = load_state_profile(state, DEFAULT_PROFILE)
+  local loaded, load_message = load_state_profile(state, initial_profile)
+  if not loaded and initial_profile ~= DEFAULT_PROFILE then
+    loaded, load_message = load_state_profile(state, DEFAULT_PROFILE)
+  end
   if not loaded then
     show_message("繁化姬初始化失败",
-      "无法载入默认配置：\n" .. tostring(load_message)
+      "无法载入配置：\n" .. tostring(load_message)
       .. "\n\n配置目录：" .. tostring(paths.config_dir))
     return
   end
@@ -1496,6 +1534,9 @@ Fanhua = {
   get_current_script = get_current_script,
   ensure_profiles = ensure_profiles,
   list_profiles = list_profiles,
+  profile_in_list = profile_in_list,
+  read_last_profile = read_last_profile,
+  remember_profile = remember_profile,
   load_profile = load_profile,
   save_profile = save_profile,
   delete_profile = delete_profile,
