@@ -959,6 +959,15 @@ local function build_dialog(state)
   local dialog = {}
   local row = 0
   local function put(control)
+    -- 细分为等宽基础列：短输入框占两列，大文本框可跨更多列。
+    local columns = { [0] = 0, 1, 2, 5, 7, 12 }
+    local start = control.x or 0
+    local finish = start + (control.width or 1)
+    control.x = columns[start]
+    control.width = columns[finish] - control.x
+    if control.name == "chs_suffix" or control.name == "cht_suffix" then
+      control.width = 2
+    end
     control.y = row
     dialog[#dialog + 1] = control
   end
@@ -967,7 +976,13 @@ local function build_dialog(state)
   end
 
   -- 首列拆分后，配置下拉框可紧贴标签。
-  put { class = "label", label = "输入与配置", x = 0, width = 5 }
+  -- 每列最小宽度相同，避免右侧文本框把繁体后缀输入框一并拉长。
+  for column = 0, 11 do
+    dialog[#dialog + 1] = {
+      class = "label", label = width_anchor(column == 0 and "输入与配置" or "", 10),
+      x = column, y = row, width = 1,
+    }
+  end
   newline()
 
   put { class = "label", label = "当前 ASS 字幕", x = 0, width = 2 }
@@ -980,7 +995,7 @@ local function build_dialog(state)
   put { class = "edit", name = "cht_suffix", value = state.values.cht_suffix or "", x = 4 }
   newline()
 
-  -- 左侧保持原始尺寸；用文本宽度锚点明确撑宽右侧规则区。
+  -- 双栏保持相同高度和上下边界；右侧规则区使用独立的宽度锚点。
   put { class = "label", label = "忽略样式名", x = 0, width = 3 }
   put { class = "label", label = width_anchor("自定义替换规则", 72), x = 3, width = 2 }
   newline()
@@ -989,23 +1004,22 @@ local function build_dialog(state)
   newline()
 
   put { class = "textbox", name = "ignore_styles",
-        text = state.values.ignore_styles or "", x = 0, width = 3, height = 6 }
+        text = state.values.ignore_styles or "", x = 0, width = 3, height = 10 }
   put { class = "textbox", name = "custom_replacements",
         text = state.values.custom_replacements or "", x = 3, width = 2, height = 10 }
-  -- 右框比左框多出的四行用于放置模块预设，避免左侧出现大片空白。
-  newline(6)
+  newline(10)
 
-  put { class = "label", label = "预设 · 繁化姬模块", x = 0, width = 3 }
+  put { class = "label", label = "繁化姬模块", x = 0, width = 5 }
   newline()
   for index, field in ipairs(MODULE_FIELDS) do
-    local column = (index - 1) % 2
+    local column = (index - 1) % 3
     put { class = "checkbox", name = field.name, label = field.label,
           value = module_enabled(state.modules, field.key),
-          x = (column == 0) and 0 or 2,
+          x = (column == 0) and 0 or (column + 1),
           width = (column == 0) and 2 or 1 }
-    if index % 2 == 0 then newline() end
+    if index % 3 == 0 then newline() end
   end
-  if #MODULE_FIELDS % 2 ~= 0 then newline() end
+  if #MODULE_FIELDS % 3 ~= 0 then newline() end
 
   local groups = {
     { title = "字幕处理", first = 1, last = 3 },
@@ -1163,7 +1177,8 @@ end
 
 local function prompt_text(title, label, default)
   local button, result = dialog_display({
-    wide_label(title, 0, 0, SPAN, DIALOG_WIDTH_UNITS),
+    { class = "label", label = title, x = 0, y = 0, width = 1 },
+    { class = "label", label = width_anchor("", 32), x = 1, y = 0 },
     { class = "label", label = label, x = 0, y = 1 },
     { class = "edit", name = "value", value = default or "", x = 1, y = 1 },
   }, { "确定", BTN_CANCEL })
