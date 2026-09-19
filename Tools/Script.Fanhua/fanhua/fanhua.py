@@ -715,34 +715,26 @@ def apply_rules(text: str, rules: list) -> str:
     return text
 
 
-def replace_outside_tags(text: str, rules: list) -> str:
-    """只替换 {...} 之外的可见文字，Override Tag 逐字节不动。"""
-    if not rules or not text:
-        return text
-    out = []
-    position = 0
-    for match in re.finditer(r"\{[^}]*\}", text):
-        out.append(apply_rules(text[position:match.start()], rules))
-        out.append(match.group(0))
-        position = match.end()
-    out.append(apply_rules(text[position:], rules))
-    return "".join(out)
-
-
 def apply_custom_replacements(content: str, rules: list, ignore_styles: list) -> tuple:
-    """在 Taiwan 转换之后执行；只改 Dialogue 的可见文字，不碰 Comment / Tag。"""
+    """在 Taiwan 转换之后对整份 ASS 执行字面替换。
+
+    字体名既可能位于 ``Style:`` 的 Fontname 字段，也可能位于 Dialogue 的
+    ``{\\fn...}`` Override Tag 中，所以自定义规则不能只处理可见正文。
+    忽略样式的 Dialogue 行在调用本函数前已经被唯一 token 遮罩，因而仍会
+    保持逐字节不变。保留 ``ignore_styles`` 参数是为了兼容既有调用方。
+    """
     if not rules:
         return content, 0
-    ignored = set(ignore_styles)
+    del ignore_styles
 
-    def transform(kind, parsed, text, index):
-        if kind != "dialogue":
-            return None
-        if parsed.get("style", "") in ignored:
-            return None
-        return replace_outside_tags(text, rules)
-
-    return rewrite_dialogue_text(content, transform)
+    out = []
+    changed = 0
+    for line in content.splitlines(keepends=True):
+        replaced = apply_rules(line, rules)
+        if replaced != line:
+            changed += 1
+        out.append(replaced)
+    return "".join(out), changed
 
 class ZhconvertClient:
     """api.zhconvert.org 客户端。保留 _fanhua.py 的全部保护逻辑。"""
