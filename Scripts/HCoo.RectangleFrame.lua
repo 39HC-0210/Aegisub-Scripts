@@ -1,7 +1,7 @@
 script_name = "快速添加矩形图框"
 script_description = "按绝对坐标、文字边界或矩形 clip 快速创建 ASS 矩形图框。"
 script_author = "H.Coo"
-script_version = "1.1.1"
+script_version = "1.1.2"
 
 include("karaskel.lua")
 
@@ -194,87 +194,69 @@ local function collect_styles(subtitles)
     return styles
 end
 
-local function add_number(dialog, row, name, label, config, minimum, maximum, step)
-    dialog[#dialog + 1] = {
-        class = "checkbox",
-        name = "use_" .. name,
-        label = "",
-        value = config["use_" .. name] == true,
-        x = 0,
-        y = row,
-        width = 1,
-        height = 1
-    }
+local DIALOG_WIDTH = 8
+
+local function add_label(dialog, row, label, column, width, height)
     dialog[#dialog + 1] = {
         class = "label",
         label = label,
-        x = 1,
+        x = column or 0,
         y = row,
-        width = 1,
-        height = 1
+        width = width or DIALOG_WIDTH,
+        height = height or 1
     }
+end
+
+local function add_optional(dialog, column, row, class, name, label, config, hint)
     dialog[#dialog + 1] = {
-        class = "floatedit",
-        name = name,
-        value = config[name],
-        min = minimum,
-        max = maximum,
-        step = step,
-        x = 2,
+        class = "checkbox",
+        name = "use_" .. name,
+        label = label,
+        value = config["use_" .. name] == true,
+        hint = hint,
+        x = column,
         y = row,
         width = 2,
         height = 1
     }
-end
-
-local function add_color(dialog, row, name, label, config)
-    dialog[#dialog + 1] = {
-        class = "label",
-        label = label,
-        x = 1,
+    local control = {
+        class = class,
+        name = name,
+        value = config[name],
+        hint = hint,
+        x = column + 2,
         y = row,
-        width = 1,
+        width = 2,
         height = 1
     }
+    dialog[#dialog + 1] = control
+    return control
+end
+
+local function add_number(dialog, column, row, name, label, config, minimum, maximum, step, hint)
+    local control = add_optional(dialog, column, row, "floatedit", name, label, config, hint)
+    control.min = minimum
+    control.max = maximum
+    control.step = step
+end
+
+local function add_color(dialog, column, row, name, label, config, hint)
+    add_label(dialog, row, label, column, 2)
     dialog[#dialog + 1] = {
         class = "color",
         name = name,
         value = config[name],
-        x = 2,
+        hint = hint,
+        x = column + 2,
         y = row,
         width = 2,
         height = 1
     }
 end
 
-local function add_alpha(dialog, row, name, label, config)
-    dialog[#dialog + 1] = {
-        class = "checkbox",
-        name = "use_" .. name,
-        label = "",
-        value = config["use_" .. name] == true,
-        x = 0,
-        y = row,
-        width = 1,
-        height = 1
-    }
-    dialog[#dialog + 1] = {
-        class = "label",
-        label = label,
-        x = 1,
-        y = row,
-        width = 1,
-        height = 1
-    }
-    dialog[#dialog + 1] = {
-        class = "alpha",
-        name = name,
-        value = config[name],
-        x = 2,
-        y = row,
-        width = 2,
-        height = 1
-    }
+local function add_alpha(dialog, column, row, name, label, config)
+    add_optional(dialog, column, row, "alpha", name, label, config,
+        "勾选后覆盖源样式的透明度；未勾选时沿用源样式。00 为不透明，FF 为全透明。")
 end
 
 local function mode_title(mode)
@@ -284,119 +266,62 @@ local function mode_title(mode)
 end
 
 local function make_dialog(mode, config)
-    local dialog = {
-        {
-            class = "label",
-            label = "【" .. mode_title(mode) .. "】\n数值左侧的复选框用于启用对应参数；未勾选时会使用默认值。",
-            x = 0,
-            y = 0,
-            width = 5,
-            height = 2
-        },
-        {
-            class = "label",
-            label = mode == MODE_DIRECT and "尺寸与位置" or mode == MODE_TEXT and "文字外扩" or "尺寸来源",
-            x = 0,
-            y = 2,
-            width = 5,
-            height = 1
-        }
-    }
-    local row = 3
+    local dialog = {}
+    add_label(dialog, 0, "【" .. mode_title(mode) .. "】")
+    add_label(dialog, 1, "数值和透明度需勾选后生效；颜色直接设置。尺寸单位为 px。")
+    add_label(dialog, 3, "01  尺寸与位置")
 
+    -- 三种模式共用相同的尺寸区域，后续外观控件始终位于相同位置。
     if mode == MODE_DIRECT then
-        add_number(dialog, row, "x", "X边界", config, 0, 100000, 1)
-        row = row + 1
-        add_number(dialog, row, "y", "Y边界", config, 0, 100000, 1)
-        row = row + 1
-        add_number(dialog, row, "width", "X长度", config, 0.001, 100000, 1)
-        row = row + 1
-        add_number(dialog, row, "height", "Y长度", config, 0.001, 100000, 1)
-        row = row + 1
+        add_label(dialog, 2, "指定矩形左上角的位置和宽高。")
+        add_number(dialog, 0, 4, "x", "左上角 X", config, 0, 100000, 1,
+            "矩形左上角的横坐标，向右为正；未勾选时为 0 px。")
+        add_number(dialog, 4, 4, "y", "左上角 Y", config, 0, 100000, 1,
+            "矩形左上角的纵坐标，向下为正；未勾选时为 0 px。")
+        add_number(dialog, 0, 5, "width", "宽度", config, 0.001, 100000, 1,
+            "矩形的横向长度，必须大于 0；未勾选时为 100 px。")
+        add_number(dialog, 4, 5, "height", "高度", config, 0.001, 100000, 1,
+            "矩形的纵向长度，必须大于 0；未勾选时为 100 px。")
+        add_label(dialog, 6, "未勾选：X / Y = 0，宽度 / 高度 = 100。")
     elseif mode == MODE_TEXT then
-        add_number(dialog, row, "padding_x", "X边界", config, 0, 100000, 1)
-        row = row + 1
-        add_number(dialog, row, "padding_y", "Y边界", config, 0, 100000, 1)
-        row = row + 1
-    end
-
-    dialog[#dialog + 1] = {
-        class = "label",
-        label = "填充外观",
-        x = 0,
-        y = row,
-        width = 5,
-        height = 1
-    }
-    row = row + 1
-    add_color(dialog, row, "fill_color", "图框颜色", config)
-    row = row + 1
-    add_alpha(dialog, row, "fill_alpha", "图框透明度", config)
-    row = row + 1
-
-    dialog[#dialog + 1] = {
-        class = "label",
-        label = "边框外观",
-        x = 0,
-        y = row,
-        width = 5,
-        height = 1
-    }
-    row = row + 1
-    add_number(dialog, row, "border_size", "边框大小", config, 0, 10000, 0.1)
-    row = row + 1
-    add_color(dialog, row, "border_color", "边框颜色", config)
-    row = row + 1
-    add_alpha(dialog, row, "border_alpha", "边框透明度", config)
-    row = row + 1
-
-    dialog[#dialog + 1] = {
-        class = "label",
-        label = "阴影外观",
-        x = 0,
-        y = row,
-        width = 5,
-        height = 1
-    }
-    row = row + 1
-    add_number(dialog, row, "shadow_size", "阴影大小", config, 0, 10000, 0.1)
-    row = row + 1
-    add_color(dialog, row, "shadow_color", "阴影颜色", config)
-    row = row + 1
-    add_alpha(dialog, row, "shadow_alpha", "阴影透明度", config)
-    row = row + 1
-
-    dialog[#dialog + 1] = {
-        class = "label",
-        label = "轮廓细节",
-        x = 0,
-        y = row,
-        width = 5,
-        height = 1
-    }
-    row = row + 1
-    add_number(dialog, row, "blur", "高斯模糊 blur", config, 0, 1000, 0.1)
-    row = row + 1
-    add_number(dialog, row, "radius", "图框圆角", config, 0, 100000, 1)
-    row = row + 1
-
-    local note
-    if mode == MODE_DIRECT then
-        note = "未启用 X/Y 边界时按 0；未启用 X/Y 长度时按 100。"
-    elseif mode == MODE_TEXT then
-        note = "X/Y 边界表示整体文字包围盒向左右/上下的外扩距离；支持大写 \\N 多行、旋转、透视和动态标签，测量时忽略 clip/iclip。"
+        add_label(dialog, 2, "根据文字轮廓生成图框，并向四周外扩。")
+        add_number(dialog, 0, 4, "padding_x", "横向外扩", config, 0, 100000, 1,
+            "文字整体包围盒向左、向右各增加的距离；未勾选时为 0 px。")
+        add_number(dialog, 4, 4, "padding_y", "纵向外扩", config, 0, 100000, 1,
+            "文字整体包围盒向上、向下各增加的距离；未勾选时为 0 px。")
+        add_label(dialog, 5, "支持 \\N 换行、旋转、透视和动态标签。")
+        add_label(dialog, 6, "未勾选：外扩为 0；测量时忽略 clip / iclip。")
     else
-        note = "仅识别矩形 \\clip(x1,y1,x2,y2)，不处理矢量 clip 或 iclip。"
+        add_label(dialog, 2, "读取所选字幕中的矩形 \\clip，自动确定位置和尺寸。")
+        add_label(dialog, 4, "位置：取矩形 \\clip 的左上角。")
+        add_label(dialog, 5, "尺寸：由矩形 \\clip 的两点坐标计算。")
+        add_label(dialog, 6, "仅支持 \\clip(x1,y1,x2,y2)，不支持矢量 clip 或 iclip。")
     end
 
-    dialog[#dialog + 1] = {
-        class = "label",
-        label = note,
-        x = 0,
-        y = row,
-        width = 5,
-        height = 2
-    }
+    add_label(dialog, 7, "02  填充外观")
+    add_color(dialog, 0, 8, "fill_color", "填充颜色", config, "图框内部的填充颜色。")
+    add_alpha(dialog, 4, 8, "fill_alpha", "填充透明度", config)
+
+    add_label(dialog, 9, "03  边框与阴影")
+    add_number(dialog, 0, 10, "border_size", "边框宽度", config, 0, 10000, 0.1,
+        "勾选后覆盖源样式的边框宽度，0 为无边框；未勾选时沿用源样式。")
+    add_number(dialog, 4, 10, "shadow_size", "阴影距离", config, 0, 10000, 0.1,
+        "勾选后覆盖源样式的阴影距离，0 为无阴影；未勾选时沿用源样式。")
+    add_color(dialog, 0, 11, "border_color", "边框颜色", config, "边框的颜色；边框宽度为 0 时不可见。")
+    add_color(dialog, 4, 11, "shadow_color", "阴影颜色", config, "阴影的颜色；阴影距离为 0 时不可见。")
+    add_alpha(dialog, 0, 12, "border_alpha", "边框透明度", config)
+    add_alpha(dialog, 4, 12, "shadow_alpha", "阴影透明度", config)
+
+    add_label(dialog, 13, "04  轮廓细节")
+    add_number(dialog, 0, 14, "blur", "模糊强度", config, 0, 1000, 0.1,
+        "高斯模糊（\\blur）的强度；未勾选或为 0 时不添加模糊。")
+    add_number(dialog, 4, 14, "radius", "圆角半径", config, 0, 100000, 1,
+        "图框圆角的半径；未勾选或为 0 时使用直角。")
+
+    add_label(dialog, 15,
+        "未勾选的透明度、边框宽度和阴影距离沿用源样式。\n" ..
+        "透明度：00 不透明，FF 全透明；创建后可撤销。", nil, nil, 2)
+
     return dialog
 end
 
@@ -448,16 +373,16 @@ local function normalize_config(mode, result)
     end
 
     if config.use_border_size and config.border_size < 0 then
-        return nil, "边框大小不能小于 0。"
+        return nil, "边框宽度不能小于 0。"
     end
     if config.use_shadow_size and config.shadow_size < 0 then
-        return nil, "阴影大小不能小于 0。"
+        return nil, "阴影距离不能小于 0。"
     end
     if config.use_blur and config.blur < 0 then
-        return nil, "高斯模糊数值不能小于 0。"
+        return nil, "模糊强度不能小于 0。"
     end
     if config.use_radius and config.radius < 0 then
-        return nil, "图框圆角不能小于 0。"
+        return nil, "圆角半径不能小于 0。"
     end
 
     if mode == MODE_DIRECT then
@@ -466,16 +391,16 @@ local function normalize_config(mode, result)
         local width = config.use_width and config.width or 100
         local height = config.use_height and config.height or 100
         if x < 0 or y < 0 then
-            return nil, "X边界和Y边界不能小于 0。"
+            return nil, "左上角 X 和 Y 坐标不能小于 0。"
         end
         if width <= 0 or height <= 0 then
-            return nil, "X长度和Y长度必须大于 0。"
+            return nil, "宽度和高度必须大于 0。"
         end
     elseif mode == MODE_TEXT then
         local padding_x = config.use_padding_x and config.padding_x or 0
         local padding_y = config.use_padding_y and config.padding_y or 0
         if padding_x < 0 or padding_y < 0 then
-            return nil, "文字的 X边界和Y边界不能小于 0。"
+            return nil, "横向外扩和纵向外扩不能小于 0。"
         end
     end
 
